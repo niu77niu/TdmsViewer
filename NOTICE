@@ -1,0 +1,37 @@
+TDMS Viewer
+Copyright 2026 The TDMS Viewer Authors
+
+This product includes software developed by the TDMS Viewer authors.
+The original source code of this project is licensed under the
+Apache License, Version 2.0 (see LICENSE).
+
+The source files under third_party/QWT/ are not part of this copyright;
+they are third-party software governed by their own licenses.
+
+--------------------------------------------------------------------------
+Third-party attribution notices
+(These components are NOT covered by the Apache License 2.0)
+--------------------------------------------------------------------------
+
+NI TDM C DLL 17.0 -- nilibddc.dll and the accompanying USI / Xerces
+runtime files, used under license from National Instruments Corporation:
+
+   Portions used under license from National Instruments Corporation;
+   copyright (c) 2007 National Instruments Corporation.
+   All rights reserved.
+
+These files are governed by the National Instruments Software License
+Agreement for TDM DLL (licenses/NI-TDM-DLL-license.rtf), not by the
+Apache License 2.0. End users may NOT redistribute the NI TDM C DLL,
+either on its own or as part of another product. The source archive
+intentionally does not contain the NI SDK.
+
+USI / Xerces XML Parser -- Apache-licensed components shipped with the NI
+runtime. Their attribution notices are preserved in licenses/ as
+USI_Xerces_License.txt, USI_Xerces_Notice.txt and
+EmbeddedUSICopyrights.chm. Do not remove them when redistributing the
+binary bundle.
+
+Qwt 7.5.2 (czyt1988/QWT) -- Qwt License 1.0; QwtPlot3D / gl2ps --
+zlib-style license. Qt 6 -- LGPLv3 / GPLv3 / commercial. See
+THIRD_PARTY_NOTICES.md and the licenses/ folder for the full terms.

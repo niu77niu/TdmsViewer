@@ -1,0 +1,93 @@
+/******************************************************************************
+ * Qwt Widget Library
+ * Copyright (C) 1997   Josef Wilgen
+ * Copyright (C) 2002   Uwe Rathmann
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the Qwt License, Version 1.0
+ *
+ * Modified by ChenZongYan in 2024 <czy.t@163.com>
+ *   Summary of major modifications (see ChangeLog.md for full history):
+ *   1. CMake build system & C++11 throughout.
+ *   2. Core panner/ zoomer refactored:
+ *        - QwtPanner → QwtCachePanner (pixmap-cache version)
+ *        - New real-time QwtPlotPanner derived from QwtPicker.
+ *   3. Zoomer supports multi-axis.
+ *   4. Parasite-plot framework:
+ *        - QwtFigure, QwtPlotParasiteLayout, QwtPlotTransparentCanvas,
+ *        - QwtPlotScaleEventDispatcher, built-in pan/zoom on axis.
+ *   5. New picker: QwtPlotSeriesDataPicker (works with date axis).
+ *   6. Raster & color-map extensions:
+ *        - QwtGridRasterData (2-D table + interpolation)
+ *        - QwtLinearColorMap::stopColors(), stopPos() API rename.
+ *   7. Bar-chart: expose pen/brush control.
+ *   8. Amalgamated build: single QwtPlot.h / QwtPlot.cpp pair in src-amalgamate.
+ *****************************************************************************/
+
+#include "TunerBox.h"
+#include "AmplifierBox.h"
+
+#include <QApplication>
+
+#include <QwtGlobal>
+#include <QWidget>
+#include <QLayout>
+#include "../../common/qwt_example_screenshot.h"
+
+namespace
+{
+class MainWindow : public QWidget
+{
+public:
+    MainWindow()
+    {
+        TunerBox* tunerBox = new TunerBox();
+        tunerBox->setFrameStyle(QFrame::NoFrame);
+
+        AmplifierBox* amplifierBox = new AmplifierBox();
+        amplifierBox->setFrameStyle(QFrame::NoFrame);
+
+        QVBoxLayout* layout = new QVBoxLayout(this);
+        layout->setContentsMargins(QMargins());
+        layout->setSpacing(0);
+        layout->addWidget(tunerBox);
+        layout->addWidget(amplifierBox);
+
+        connect(tunerBox, SIGNAL(fieldChanged(double)), amplifierBox, SLOT(setMaster(double)));
+
+        tunerBox->setFreq(90.0);
+
+        setPalette(QPalette(QColor(192, 192, 192)));
+    }
+
+    virtual void resizeEvent(QResizeEvent*) override
+    {
+        // Qt 4.7.1: QGradient::StretchToDeviceMode is buggy on X11
+
+        QPalette pal = palette();
+
+        const QColor buttonColor   = pal.color(QPalette::Button);
+        const QColor midLightColor = pal.color(QPalette::Midlight);
+
+        QLinearGradient gradient(rect().topLeft(), rect().topRight());
+        gradient.setColorAt(0.0, midLightColor);
+        gradient.setColorAt(0.7, buttonColor);
+        gradient.setColorAt(1.0, buttonColor);
+
+        pal.setBrush(QPalette::Window, gradient);
+        setPalette(pal);
+    }
+};
+}
+
+int main(int argc, char* argv[])
+{
+    QApplication app(argc, argv);
+
+    MainWindow window;
+    window.show();
+
+    QwtExampleScreenshot::start( &window );
+
+    return app.exec();
+}

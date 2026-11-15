@@ -1,0 +1,121 @@
+/******************************************************************************
+ * QwtPolar Widget Library
+ * Copyright (C) 2008   Uwe Rathmann
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the Qwt License, Version 1.0
+ *****************************************************************************/
+
+#include "qwt_polar_cache_panner.h"
+#include "qwt_polar_plot.h"
+#include "qwt_polar_canvas.h"
+#include "qwt_scale_div.h"
+#include "qwt_point_polar.h"
+
+/**
+ * @brief Create a plot panner for a polar plot canvas
+ * @param canvas Plot canvas to be panned
+ */
+QwtPolarCachePanner::QwtPolarCachePanner(QwtPolarCanvas* canvas) : QwtCachePanner(canvas)
+{
+    connect(this, &QwtCachePanner::panned, this, &QwtPolarCachePanner::movePlot);
+}
+
+/**
+ * @brief Destructor
+ */
+QwtPolarCachePanner::~QwtPolarCachePanner()
+{
+}
+
+/**
+ * @brief Get the observed plot canvas
+ * @return Observed plot canvas
+ */
+QwtPolarCanvas* QwtPolarCachePanner::canvas()
+{
+    return qobject_cast< QwtPolarCanvas* >(parent());
+}
+
+/**
+ * @brief Get the observed plot canvas (const version)
+ * @return Observed plot canvas
+ */
+const QwtPolarCanvas* QwtPolarCachePanner::canvas() const
+{
+    return qobject_cast< const QwtPolarCanvas* >(parent());
+}
+
+/**
+ * @brief Get the observed plot
+ * @return Observed plot
+ */
+QwtPolarPlot* QwtPolarCachePanner::plot()
+{
+    QwtPolarCanvas* c = canvas();
+    if (c)
+        return c->plot();
+
+    return nullptr;
+}
+
+/**
+ * @brief Get the observed plot (const version)
+ * @return Observed plot
+ */
+const QwtPolarPlot* QwtPolarCachePanner::plot() const
+{
+    const QwtPolarCanvas* c = canvas();
+    if (c)
+        return c->plot();
+
+    return nullptr;
+}
+
+/**
+ * @brief Adjust the zoomed area according to dx/dy
+ * @param dx Pixel offset in x direction
+ * @param dy Pixel offset in y direction
+ * @sa QwtPanner::panned(), QwtPolarPlot::zoom()
+ */
+void QwtPolarCachePanner::movePlot(int dx, int dy)
+{
+    QwtPolarPlot* plot = QwtPolarCachePanner::plot();
+    if (plot == nullptr || (dx == 0 && dy == 0))
+        return;
+
+    const QwtScaleMap map = plot->scaleMap(QwtPolar::Radius);
+
+    QwtPointPolar pos = plot->zoomPos();
+    if (map.s1() <= map.s2()) {
+        pos.setRadius(map.transform(map.s1() + pos.radius()) - map.p1());
+        pos.setPoint(pos.toPoint() - QPointF(dx, -dy));
+        pos.setRadius(map.invTransform(map.p1() + pos.radius()) - map.s1());
+    } else {
+        pos.setRadius(map.transform(map.s1() - pos.radius()) - map.p1());
+        pos.setPoint(pos.toPoint() - QPointF(dx, -dy));
+        pos.setRadius(map.s1() - map.invTransform(map.p1() + pos.radius()));
+    }
+
+    const bool doAutoReplot = plot->autoReplot();
+    plot->setAutoReplot(false);
+
+    plot->zoom(pos, plot->zoomFactor());
+
+    plot->setAutoReplot(doAutoReplot);
+    plot->replot();
+}
+
+/*!
+   Block panning when the plot zoom factor is >= 1.0.
+
+   @param event Mouse event
+ */
+void QwtPolarCachePanner::widgetMousePressEvent(QMouseEvent* event)
+{
+    const QwtPolarPlot* plot = QwtPolarCachePanner::plot();
+    if (plot) {
+        if (plot->zoomFactor() < 1.0)
+            QwtCachePanner::widgetMousePressEvent(event);
+    }
+}

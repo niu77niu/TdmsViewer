@@ -1,0 +1,13 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>theme/chevron-down-dark.svg</file>
+        <file>theme/chevron-down-light.svg</file>
+        <file>theme/chevron-up-dark.svg</file>
+        <file>theme/chevron-up-light.svg</file>
+        <file>theme/check.svg</file>
+        <file>theme/dot.svg</file>
+        <file>win/app.ico</file>
+        <file>win/app.png</file>
+    </qresource>
+</RCC>

@@ -1,0 +1,335 @@
+/******************************************************************************
+ * Qwt Widget Library
+ * Copyright (C) 1997   Josef Wilgen
+ * Copyright (C) 2002   Uwe Rathmann
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the Qwt License, Version 1.0
+ *
+ * Modified by ChenZongYan in 2024 <czy.t@163.com>
+ *   Summary of major modifications (see ChangeLog.md for full history):
+ *   1. CMake build system & C++11 throughout.
+ *   2. Core panner/ zoomer refactored:
+ *        - QwtPanner → QwtCachePanner (pixmap-cache version)
+ *        - New real-time QwtPlotPanner derived from QwtPicker.
+ *   3. Zoomer supports multi-axis.
+ *   4. Parasite-plot framework:
+ *        - QwtFigure, QwtPlotParasiteLayout, QwtPlotTransparentCanvas,
+ *        - QwtPlotScaleEventDispatcher, built-in pan/zoom on axis.
+ *   5. New picker: QwtPlotSeriesDataPicker (works with date axis).
+ *   6. Raster & color-map extensions:
+ *        - QwtGridRasterData (2-D table + interpolation)
+ *        - QwtLinearColorMap::stopColors(), stopPos() API rename.
+ *   7. Bar-chart: expose pen/brush control.
+ *   8. Amalgamated build: single QwtPlot.h / QwtPlot.cpp pair in src-amalgamate.
+ *****************************************************************************/
+
+#include "qwt_compass.h"
+#include "qwt_compass_rose.h"
+#include "qwt_text.h"
+
+#include <qevent.h>
+#include <qmap.h>
+
+class QwtCompassScaleDraw::PrivateData
+{
+    QWT_DECLARE_PUBLIC(QwtCompassScaleDraw)
+public:
+    PrivateData(QwtCompassScaleDraw* p) : q_ptr(p)
+    {
+    }
+
+    QMap< double, QString > labelMap;
+};
+
+/**
+ *   @brief Constructor
+ *   @details Initializes a label map for multiples of 45 degrees.
+ *            The default map consists of the labels N, NE, E, SE, S, SW, W, NW.
+ */
+QwtCompassScaleDraw::QwtCompassScaleDraw() : QWT_PIMPL_CONSTRUCT
+{
+    QWT_D(d);
+    enableComponent(QwtAbstractScaleDraw::Backbone, false);
+    enableComponent(QwtAbstractScaleDraw::Ticks, false);
+
+    QMap< double, QString >& map = d->labelMap;
+
+    map.insert(0.0, QString::fromLatin1("N"));
+    map.insert(45.0, QString::fromLatin1("NE"));
+    map.insert(90.0, QString::fromLatin1("E"));
+    map.insert(135.0, QString::fromLatin1("SE"));
+    map.insert(180.0, QString::fromLatin1("S"));
+    map.insert(225.0, QString::fromLatin1("SW"));
+    map.insert(270.0, QString::fromLatin1("W"));
+    map.insert(315.0, QString::fromLatin1("NW"));
+
+#if 0
+    map.insert( 22.5, QString::fromLatin1( "NNE" ) );
+    map.insert( 67.5, QString::fromLatin1( "NEE" ) );
+    map.insert( 112.5, QString::fromLatin1( "SEE" ) );
+    map.insert( 157.5, QString::fromLatin1( "SSE" ) );
+    map.insert( 202.5, QString::fromLatin1( "SSW" ) );
+    map.insert( 247.5, QString::fromLatin1( "SWW" ) );
+    map.insert( 292.5, QString::fromLatin1( "NWW" ) );
+    map.insert( 337.5, QString::fromLatin1( "NNW" ) );
+#endif
+}
+
+/**
+ *   @brief Constructor
+ *   @param[in] map Value to label map
+ */
+QwtCompassScaleDraw::QwtCompassScaleDraw(const QMap< double, QString >& map) : QWT_PIMPL_CONSTRUCT
+{
+    QWT_D(d);
+    d->labelMap = map;
+
+    enableComponent(QwtAbstractScaleDraw::Backbone, false);
+    enableComponent(QwtAbstractScaleDraw::Ticks, false);
+}
+
+/**
+ *   @brief Destructor
+ */
+QwtCompassScaleDraw::~QwtCompassScaleDraw()
+{
+}
+
+/**
+ *   @brief Set a map, mapping values to labels
+ *   @param[in] map Value to label map
+ *   @details The values of the major ticks are found by looking into this map.
+ *            The default map consists of the labels N, NE, E, SE, S, SW, W, NW.
+ *   @warning The map will have no effect for values that are no major tick values.
+ *            Major ticks can be changed by QwtScaleDraw::setScale.
+ *   @sa labelMap(), scaleDraw(), setScale()
+ */
+void QwtCompassScaleDraw::setLabelMap(const QMap< double, QString >& map)
+{
+    QWT_D(d);
+    d->labelMap = map;
+}
+
+/**
+ *   @brief Get the map, mapping values to labels
+ *   @return Map, mapping values to labels
+ *   @sa setLabelMap()
+ */
+QMap< double, QString > QwtCompassScaleDraw::labelMap() const
+{
+    QWT_DC(d);
+    return d->labelMap;
+}
+
+/**
+ *   @brief Map a value to a corresponding label
+ *   @param[in] value Value that will be mapped
+ *   @details label() looks in the labelMap() for a corresponding label for value
+ *            or returns a null text.
+ *   @return Label corresponding to the value, or null text if not found
+ *   @sa labelMap(), setLabelMap()
+ */
+QwtText QwtCompassScaleDraw::label(double value) const
+{
+    QWT_DC(d);
+    if (qFuzzyCompare(value + 1.0, 1.0))
+        value = 0.0;
+
+    if (value < 0.0)
+        value += 360.0;
+
+    auto it = d->labelMap.constFind(value);
+
+    if (it != d->labelMap.constEnd())
+        return *it;
+
+    return QwtText();
+}
+
+class QwtCompass::PrivateData
+{
+    QWT_DECLARE_PUBLIC(QwtCompass)
+public:
+    PrivateData(QwtCompass* p) : q_ptr(p), rose(nullptr)
+    {
+    }
+
+    ~PrivateData()
+    {
+        delete rose;
+    }
+
+    QwtCompassRose* rose;
+};
+
+/**
+ *   @brief Constructor
+ *   @param[in] parent Parent widget
+ *   @details Creates a compass widget with a scale, no needle and no rose.
+ *            The default origin is 270.0 with no valid value. It accepts
+ *            mouse and keyboard inputs and has no step size. The default mode
+ *            is QwtDial::RotateNeedle.
+ */
+QwtCompass::QwtCompass(QWidget* parent) : QwtDial(parent), QWT_PIMPL_CONSTRUCT
+{
+    setScaleDraw(new QwtCompassScaleDraw());
+
+    setOrigin(270.0);
+    setWrapping(true);
+
+    setScaleMaxMajor(36);
+    setScaleMaxMinor(10);
+
+    setScale(0.0, 360.0);  // degrees as default
+    setTotalSteps(360);
+}
+
+/**
+ *   @brief Destructor
+ */
+QwtCompass::~QwtCompass()
+{
+}
+
+/*!
+   Draw the contents of the scale
+
+   @param painter Painter
+   @param center Center of the content circle
+   @param radius Radius of the content circle
+ */
+void QwtCompass::drawScaleContents(QPainter* painter, const QPointF& center, double radius) const
+{
+    QPalette::ColorGroup cg;
+    if (isEnabled())
+        cg = hasFocus() ? QPalette::Active : QPalette::Inactive;
+    else
+        cg = QPalette::Disabled;
+
+    double north = origin();
+    if (isValid()) {
+        if (mode() == RotateScale)
+            north -= value();
+    }
+
+    const int margin = 4;
+    drawRose(painter, center, radius - margin, 360.0 - north, cg);
+}
+
+/*!
+   Draw the compass rose
+
+   @param painter Painter
+   @param center Center of the compass
+   @param radius of the circle, where to paint the rose
+   @param north Direction pointing north, in degrees counter clockwise
+   @param cg Color group
+ */
+void QwtCompass::drawRose(QPainter* painter, const QPointF& center, double radius, double north, QPalette::ColorGroup cg) const
+{
+    QWT_DC(d);
+    if (d->rose)
+        d->rose->draw(painter, center, radius, north, cg);
+}
+
+/**
+ *   @brief Set a rose for the compass
+ *   @param[in] rose Compass rose
+ *   @warning The rose will be deleted, when a different rose is set or in ~QwtCompass.
+ *   @sa rose()
+ */
+void QwtCompass::setRose(QwtCompassRose* rose)
+{
+    QWT_D(d);
+    if (rose != d->rose) {
+        if (d->rose)
+            delete d->rose;
+
+        d->rose = rose;
+        update();
+    }
+}
+
+/**
+ *   @brief Get the compass rose
+ *   @return The compass rose (const version)
+ *   @sa setRose()
+ */
+const QwtCompassRose* QwtCompass::rose() const
+{
+    QWT_DC(d);
+    return d->rose;
+}
+
+/**
+ *   @brief Get the compass rose
+ *   @return The compass rose
+ *   @sa setRose()
+ */
+QwtCompassRose* QwtCompass::rose()
+{
+    QWT_D(d);
+    return d->rose;
+}
+
+/*!
+   Handles key events
+
+   Beside the keys described in QwtDial::keyPressEvent numbers
+   from 1-9 (without 5) set the direction according to their
+   position on the num pad.
+
+   @sa isReadOnly()
+ */
+void QwtCompass::keyPressEvent(QKeyEvent* kev)
+{
+    if (isReadOnly())
+        return;
+
+#if 0
+    if ( kev->key() == Key_5 )
+    {
+        invalidate(); // signal ???
+        return;
+    }
+#endif
+
+    double newValue = value();
+
+    if (kev->key() >= Qt::Key_1 && kev->key() <= Qt::Key_9) {
+        if (mode() != RotateNeedle || kev->key() == Qt::Key_5)
+            return;
+
+        switch (kev->key()) {
+        case Qt::Key_6:
+            newValue = 180.0 * 0.0;
+            break;
+        case Qt::Key_3:
+            newValue = 180.0 * 0.25;
+            break;
+        case Qt::Key_2:
+            newValue = 180.0 * 0.5;
+            break;
+        case Qt::Key_1:
+            newValue = 180.0 * 0.75;
+            break;
+        case Qt::Key_4:
+            newValue = 180.0 * 1.0;
+            break;
+        case Qt::Key_7:
+            newValue = 180.0 * 1.25;
+            break;
+        case Qt::Key_8:
+            newValue = 180.0 * 1.5;
+            break;
+        case Qt::Key_9:
+            newValue = 180.0 * 1.75;
+            break;
+        }
+        newValue -= origin();
+        setValue(newValue);
+    } else {
+        QwtDial::keyPressEvent(kev);
+    }
+}

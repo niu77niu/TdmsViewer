@@ -1,0 +1,75 @@
+﻿cmake_minimum_required(VERSION 3.10)
+project(QwtExamples LANGUAGES CXX)
+include_directories(${CMAKE_CURRENT_LIST_DIR}/../classincludes)
+add_subdirectory(2D/animation)
+add_subdirectory(2D/BarChart)
+add_subdirectory(2D/boxchart)
+add_subdirectory(2D/pyplot)
+add_subdirectory(2D/bode)
+add_subdirectory(2D/controls)
+add_subdirectory(2D/cpuplot)
+add_subdirectory(2D/curvedemo)
+add_subdirectory(2D/dials)
+add_subdirectory(2D/distrowatch)
+add_subdirectory(2D/friedberg)
+add_subdirectory(2D/figure)
+add_subdirectory(2D/parasitePlot)
+add_subdirectory(2D/outsideTitle)
+add_subdirectory(2D/itemeditor)
+add_subdirectory(2D/legends)
+add_subdirectory(2D/oscilloscope)
+add_subdirectory(2D/polardemo)
+add_subdirectory(2D/polarspectrogram)
+add_subdirectory(2D/radio)
+add_subdirectory(2D/rasterview)
+add_subdirectory(2D/realtime)
+add_subdirectory(2D/refreshtest)
+add_subdirectory(bench/renderbench)
+add_subdirectory(bench/chartbench)
+add_subdirectory(2D/scatterplot)
+add_subdirectory(2D/simpleplot)
+add_subdirectory(2D/sinusplot)
+add_subdirectory(2D/spectrogram)
+add_subdirectory(2D/splineeditor)
+add_subdirectory(2D/stockchart)
+add_subdirectory(2D/sysinfo)
+add_subdirectory(2D/tvplot)
+add_subdirectory(2D/ticks_inside)
+add_subdirectory(2D/nanperf)
+add_subdirectory(2D/curvesmoothing)
+add_subdirectory(2D/colormap)
+add_subdirectory(2D/downsample_demo)
+
+if(QWT_CONFIG_QWTPLOT_3D)
+    add_subdirectory(3D/figureSurface3D)
+    add_subdirectory(3D/qwtplot3d)
+    add_subdirectory(3D/line3D)
+    add_subdirectory(3D/bar3D)
+    add_subdirectory(3D/waterfall3D)
+endif()
+if(QWT_CONFIG_BUILD_STATIC_EXAMPLE)
+    # 静态编译示例
+    add_subdirectory(staticExample)
+endif()
+
+# NOTE: qmakeExample is a qmake-based project that uses the src-amalgamate
+#       single file. It is NOT built by CMake.
+#       Build it with: cd examples/qmakeExample && qmake && make
+
+# Regenerates the documentation screenshots (docs/assets/screenshots*) by
+# running the examples with the unattended screenshot protocol, see
+# examples/SCREENSHOTS.md. Requires the examples to be built.
+if(WIN32)
+    find_program(QWT_POWERSHELL powershell)
+    if(QWT_POWERSHELL)
+        add_custom_target(update-screenshots
+            COMMAND "${QWT_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+                    -File "${CMAKE_CURRENT_LIST_DIR}/update-screenshots.ps1"
+                    -BuildDir "${CMAKE_BINARY_DIR}"
+            WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}"
+            COMMENT "Updating documentation screenshots from examples"
+            VERBATIM
+        )
+    endif()
+endif()
+

@@ -1,0 +1,233 @@
+# Symbol Styles - QwtSymbol
+
+`QwtSymbol` defines how data points are marked. It offers a set of predefined shapes and custom paths, and its size, fill and border are configurable; curves and scatter plots use it to draw markers.
+
+## Main Features
+
+Predefined shapes include ellipse, rectangle, diamond, triangle and cross, and a custom QPainterPath can describe arbitrary shapes. Size, fill color and border color are configurable, and the pin point sets where the symbol attaches to the data point.
+
+## Basic Concepts
+
+### Symbol Shape List
+
+| Shape | Enum Value | Description |
+|------|--------|------|
+| No symbol | `NoSymbol` | Do not display symbol |
+| Ellipse | `Ellipse` | Circle or ellipse |
+| Rectangle | `Rect` | Square or rectangle |
+| Diamond | `Diamond` | Diamond |
+| Triangle | `Triangle` | Upward-pointing triangle |
+| Down Triangle | `DTriangle` | Downward-pointing triangle |
+| Up Triangle | `UTriangle` | Upward-pointing triangle |
+| Left Triangle | `LTriangle` | Left-pointing triangle |
+| Right Triangle | `RTriangle` | Right-pointing triangle |
+| Cross | `Cross` | Plus-shaped cross (+) |
+| X Cross | `XCross` | Diagonal cross (X) |
+| Horizontal Line | `HLine` | Horizontal line |
+| Vertical Line | `VLine` | Vertical line |
+| Star | `Star1` | X combined with + |
+| Star2 | `Star2` | Six-pointed star |
+| Hexagon | `Hexagon` | Regular hexagon |
+| Path | `Path` | Custom QPainterPath |
+| Pixmap | `Pixmap` | QPixmap bitmap |
+| Graphic | `Graphic` | QwtGraphic object |
+| SVG | `SvgDocument` | SVG document graphic |
+
+## Usage
+
+The symbol demo is located at: `playground/symbols`. Screenshot:
+
+![Symbols Demo](../../assets/screenshots/symbols.png)
+
+### 1. Creating Basic Symbols
+
+A symbol can be fully configured in one shot through the convenience constructor `QwtSymbol(style, brush, pen, size)`, or created empty and then set up step by step with `setStyle()`, `setBrush()`, `setPen()` and `setSize()`. The example below demonstrates both approaches:
+
+```cpp
+#include <QwtSymbol>
+
+// Method 1: Convenience constructor
+QwtSymbol* symbol = new QwtSymbol(
+    QwtSymbol::Ellipse,     // Shape
+    QBrush(Qt::red),        // Fill
+    QPen(Qt::darkRed, 1),   // Border
+    QSize(10, 10)           // Size
+);
+
+// Method 2: Step-by-step configuration
+QwtSymbol* symbol2 = new QwtSymbol();
+symbol2->setStyle(QwtSymbol::Diamond);
+symbol2->setBrush(QBrush(Qt::blue));
+symbol2->setPen(QPen(Qt::black, 2));
+symbol2->setSize(8, 8);
+```
+
+### 2. Applying Symbols to Curves
+
+Symbols are handed to a curve with `QwtPlotCurve::setSymbol()` (the curve takes ownership of the pointer) and are then drawn at every sample position. The example below attaches a small filled symbol to a curve:
+
+```cpp
+#include <QwtPlotCurve>
+
+QwtPlotCurve* curve = new QwtPlotCurve();
+
+// Set symbol (QwtSymbol has no Circle style - use Ellipse with a square size)
+curve->setSymbol(new QwtSymbol(
+    QwtSymbol::Ellipse,
+    QBrush(Qt::yellow),
+    QPen(Qt::blue, 1),
+    QSize(6, 6)
+));
+
+// Symbol will be displayed at each data point position
+```
+
+### 3. Common Symbol Shape Examples
+
+The first argument of the convenience constructor is a `QwtSymbol::Style` enum value, which can be combined freely with a fill `QBrush` and an outline `QPen`; line-only shapes such as `Cross` and `XCross` are typically paired with `Qt::NoBrush`. The code below builds several commonly used shapes:
+
+```cpp
+// Circle symbol
+QwtSymbol* circle = new QwtSymbol(QwtSymbol::Ellipse,
+    QBrush(Qt::white), QPen(Qt::blue, 2), QSize(10, 10));
+
+// Rectangle symbol
+QwtSymbol* rect = new QwtSymbol(QwtSymbol::Rect,
+    QBrush(Qt::green), QPen(Qt::darkGreen), QSize(8, 8));
+
+// Diamond symbol
+QwtSymbol* diamond = new QwtSymbol(QwtSymbol::Diamond,
+    QBrush(Qt::cyan), QPen(Qt::darkCyan), QSize(12, 12));
+
+// Cross symbol (lines only, no fill)
+QwtSymbol* cross = new QwtSymbol(QwtSymbol::Cross,
+    Qt::NoBrush, QPen(Qt::red, 2), QSize(10, 10));
+
+// X cross symbol
+QwtSymbol* xcross = new QwtSymbol(QwtSymbol::XCross,
+    Qt::NoBrush, QPen(Qt::magenta, 2), QSize(12, 12));
+
+// Star symbol
+QwtSymbol* star = new QwtSymbol(QwtSymbol::Star1,
+    QBrush(Qt::yellow), QPen(Qt::orange), QSize(15, 15));
+```
+
+### 4. Custom Shapes
+
+Creating custom shapes using QPainterPath:
+
+```cpp
+QwtSymbol* customSymbol = new QwtSymbol();
+
+// Create custom path (e.g., arrow shape)
+QPainterPath path;
+path.moveTo(0, -10);     // Top tip
+path.lineTo(6, 5);       // Right shoulder
+path.lineTo(0, 2);       // Center indent
+path.lineTo(-6, 5);      // Left shoulder
+path.closeSubpath();
+
+customSymbol->setStyle(QwtSymbol::Path);
+customSymbol->setPath(path);
+customSymbol->setBrush(QBrush(Qt::red));
+customSymbol->setPen(QPen(Qt::darkRed, 1));
+customSymbol->setSize(20, 20);
+```
+
+### 5. Symbol Size Settings
+
+The symbol dimensions are set with `setSize()`, which has two overloads: one taking a `QSize` and one taking separate width and height, so non-square symbols such as ellipses are possible. The example below shows both forms:
+
+```cpp
+// Set fixed size
+symbol->setSize(QSize(10, 10));  // 10x10 pixels
+
+// Set different width and height (elliptical)
+symbol->setSize(15, 8);  // Width 15, height 8
+
+// Dynamic size (based on data value)
+// Needs to be implemented in custom drawing
+```
+
+### 6. Symbol Pin Point
+
+The pin point defines the position *inside the symbol's own coordinate system* (painter path coordinates for `Path`, pixel coordinates for `Pixmap`, viewBox coordinates for `SvgDocument`) that is aligned to the data point. It only applies to `Path`, `Pixmap`, `Graphic` and `SvgDocument` symbols; the coordinates are not normalized to [0,1]. By default the pin point is disabled and symbols are centered on the data point.
+
+```cpp
+// Pin point alignment is disabled by default: the symbol is centered
+// on the data point.
+
+// Align the symbol at the origin (0, 0) of its own coordinate system -
+// e.g. the tip of an arrow drawn at (0, 0) then sits exactly on the
+// data value. setPinPoint() enables the alignment by default:
+symbol->setPinPoint(QPointF(0.0, 0.0));
+
+// Any other position in symbol coordinates works as well,
+// e.g. a point 5 pixels right/below the origin:
+symbol->setPinPoint(QPointF(5.0, 5.0));
+
+// Disable the pin point alignment: the symbol is centered again
+symbol->setPinPointEnabled(false);
+```
+
+### 7. Symbol Fill Styles
+
+Filling is controlled by `setBrush()`, and the `QBrush` may be a solid color, a gradient such as `QLinearGradient`, or a fill pattern; passing `Qt::NoBrush` leaves only the outline. The code below demonstrates a few common fill styles:
+
+```cpp
+// Simple fill
+symbol->setBrush(QBrush(Qt::red));
+
+// Gradient fill
+QLinearGradient gradient(0, 0, 0, 1);
+gradient.setColorAt(0, Qt::red);
+gradient.setColorAt(1, Qt::darkRed);
+symbol->setBrush(QBrush(gradient));
+
+// No fill (border only)
+symbol->setBrush(Qt::NoBrush);
+
+// Pattern fill
+symbol->setBrush(QBrush(Qt::blue, Qt::DiagCrossPattern));
+```
+
+### 8. Border Styles
+
+The border is controlled by `setPen()`, where line style, width and color all come from the supplied `QPen`; passing `Qt::NoPen` removes the border entirely. The example below shows several typical pen configurations:
+
+```cpp
+// Solid border
+symbol->setPen(QPen(Qt::black, 1, Qt::SolidLine));
+
+// Dashed border
+symbol->setPen(QPen(Qt::blue, 2, Qt::DashLine));
+
+// No border
+symbol->setPen(Qt::NoPen);
+
+// Rounded border (only valid for rectangles)
+// Needs to be implemented via custom Path
+```
+
+## Core Method Summary
+
+| Method | Description |
+|------|------|
+| `setStyle()` | Set symbol shape |
+| `setSize()` | Set symbol size |
+| `setBrush()` | Set fill brush |
+| `setPen()` | Set border pen |
+| `setPath()` | Set custom path |
+| `setPinPoint()` | Set pin point position |
+| `drawSymbol()` | Draw symbol |
+
+> **Tip — Symbol Usage Recommendations**
+>
+> - Use small symbols or no symbols when data points are dense
+> - Use large symbols to emphasize key data points
+> - Use different shapes for different data series for easy distinction
+> - Unfilled symbols (Cross, XCross) have better performance
+
+> **Example — Related Examples**
+>
+> - Symbol demo: `playground/symbols`

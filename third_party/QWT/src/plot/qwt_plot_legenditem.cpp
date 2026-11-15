@@ -1,0 +1,939 @@
+/******************************************************************************
+ * Qwt Widget Library
+ * Copyright (C) 1997   Josef Wilgen
+ * Copyright (C) 2002   Uwe Rathmann
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the Qwt License, Version 1.0
+ *
+ * Modified by ChenZongYan in 2024 <czy.t@163.com>
+ *   Summary of major modifications (see ChangeLog.md for full history):
+ *   1. CMake build system & C++11 throughout.
+ *   2. Core panner/ zoomer refactored:
+ *        - QwtPanner → QwtCachePanner (pixmap-cache version)
+ *        - New real-time QwtPlotPanner derived from QwtPicker.
+ *   3. Zoomer supports multi-axis.
+ *   4. Parasite-plot framework:
+ *        - QwtFigure, QwtPlotParasiteLayout, QwtPlotTransparentCanvas,
+ *        - QwtPlotScaleEventDispatcher, built-in pan/zoom on axis.
+ *   5. New picker: QwtPlotSeriesDataPicker (works with date axis).
+ *   6. Raster & color-map extensions:
+ *        - QwtGridRasterData (2-D table + interpolation)
+ *        - QwtLinearColorMap::stopColors(), stopPos() API rename.
+ *   7. Bar-chart: expose pen/brush control.
+ *   8. Amalgamated build: single QwtPlot.h / QwtPlot.cpp pair in src-amalgamate.
+ *****************************************************************************/
+
+#include "qwt_plot_legenditem.h"
+#include "qwt_dyngrid_layout.h"
+#include "qwt_text.h"
+#include "qwt_graphic.h"
+#include "qwt_legend_data.h"
+#include "qwt_math.h"
+
+#include <qlayoutitem.h>
+#include <qpen.h>
+#include <qbrush.h>
+#include <qpainter.h>
+
+namespace
+{
+class LayoutItem final : public QLayoutItem
+{
+public:
+    LayoutItem(const QwtPlotLegendItem*, const QwtPlotItem*);
+    virtual ~LayoutItem();
+
+    const QwtPlotItem* plotItem() const;
+
+    void setData(const QwtLegendData&);
+    const QwtLegendData& data() const;
+
+    virtual Qt::Orientations expandingDirections() const override;
+    virtual QRect geometry() const override;
+    virtual bool hasHeightForWidth() const override;
+    virtual int heightForWidth(int) const override;
+    virtual bool isEmpty() const override;
+    virtual QSize maximumSize() const override;
+    virtual int minimumHeightForWidth(int) const override;
+    virtual QSize minimumSize() const override;
+    virtual void setGeometry(const QRect&) override;
+    virtual QSize sizeHint() const override;
+
+private:
+    const QwtPlotLegendItem* m_legendItem;
+    const QwtPlotItem* m_plotItem;
+    QwtLegendData m_data;
+
+    QRect m_rect;
+};
+
+LayoutItem::LayoutItem(const QwtPlotLegendItem* legendItem, const QwtPlotItem* plotItem)
+    : m_legendItem(legendItem), m_plotItem(plotItem)
+{
+}
+
+LayoutItem::~LayoutItem()
+{
+}
+
+const QwtPlotItem* LayoutItem::plotItem() const
+{
+    return m_plotItem;
+}
+
+void LayoutItem::setData(const QwtLegendData& data)
+{
+    m_data = data;
+}
+
+const QwtLegendData& LayoutItem::data() const
+{
+    return m_data;
+}
+
+Qt::Orientations LayoutItem::expandingDirections() const
+{
+    return Qt::Horizontal;
+}
+
+bool LayoutItem::hasHeightForWidth() const
+{
+    return !m_data.title().isEmpty();
+}
+
+int LayoutItem::minimumHeightForWidth(int w) const
+{
+    return m_legendItem->heightForWidth(m_data, w);
+}
+
+int LayoutItem::heightForWidth(int w) const
+{
+    return m_legendItem->heightForWidth(m_data, w);
+}
+
+bool LayoutItem::isEmpty() const
+{
+    return false;
+}
+
+QSize LayoutItem::maximumSize() const
+{
+    return QSize(QLAYOUTSIZE_MAX, QLAYOUTSIZE_MAX);
+}
+
+QSize LayoutItem::minimumSize() const
+{
+    return m_legendItem->minimumSize(m_data);
+}
+
+QSize LayoutItem::sizeHint() const
+{
+    return minimumSize();
+}
+
+void LayoutItem::setGeometry(const QRect& rect)
+{
+    m_rect = rect;
+}
+
+QRect LayoutItem::geometry() const
+{
+    return m_rect;
+}
+}
+
+class QwtPlotLegendItem::PrivateData
+{
+    QWT_DECLARE_PUBLIC(QwtPlotLegendItem)
+public:
+    PrivateData(QwtPlotLegendItem* p)
+        : q_ptr(p)
+        , itemMargin(4)
+        , itemSpacing(4)
+        , borderRadius(0.0)
+        , borderPen(Qt::NoPen)
+        , backgroundBrush(Qt::NoBrush)
+        , backgroundMode(QwtPlotLegendItem::LegendBackground)
+        , canvasAlignment(Qt::AlignRight | Qt::AlignBottom)
+    {
+        canvasOffset[ 0 ] = canvasOffset[ 1 ] = 10;
+        layout                                = new QwtDynGridLayout();
+        layout->setMaxColumns(2);
+
+        layout->setSpacing(0);
+        layout->setContentsMargins(0, 0, 0, 0);
+    }
+
+    ~PrivateData()
+    {
+        delete layout;
+    }
+
+    QFont font;
+    QPen textPen;
+    int itemMargin;
+    int itemSpacing;
+
+    double borderRadius;
+    QPen borderPen;
+    QBrush backgroundBrush;
+    QwtPlotLegendItem::BackgroundMode backgroundMode;
+
+    int canvasOffset[ 2 ];
+    Qt::Alignment canvasAlignment;
+
+    QMap< const QwtPlotItem*, QList< LayoutItem* > > map;
+    QwtDynGridLayout* layout;
+};
+
+/**
+ * @brief Constructor
+ * @details Creates a legend item with default settings.
+ *          The legend item is initialized with LegendInterest enabled
+ *          and a z-value of 100.0.
+ *
+ */
+QwtPlotLegendItem::QwtPlotLegendItem() : QwtPlotItem(QwtText("Legend")), QWT_PIMPL_CONSTRUCT
+{
+    setItemInterest(QwtPlotItem::LegendInterest, true);
+    setZ(100.0);
+}
+
+/**
+ * @brief Destructor
+ *
+ */
+QwtPlotLegendItem::~QwtPlotLegendItem()
+{
+    clearLegend();
+}
+
+/**
+ * @brief Get the runtime type information
+ * @return QwtPlotItem::Rtti_PlotLegend
+ *
+ */
+int QwtPlotLegendItem::rtti() const
+{
+    return QwtPlotItem::Rtti_PlotLegend;
+}
+
+/**
+ * @brief Set the alignment of the legend within the canvas
+ * @param[in] alignment Alignment flags (e.g., Qt::AlignRight | Qt::AlignBottom)
+ * @details Alignment means the position of the legend relative to the geometry
+ *          of the plot canvas.
+ * @note To align a legend with many items horizontally, the number of columns
+ *       needs to be limited.
+ * @sa alignmentInCanvas(), setMaxColumns()
+ *
+ */
+void QwtPlotLegendItem::setAlignmentInCanvas(Qt::Alignment alignment)
+{
+    QWT_D(d);
+    if (d->canvasAlignment != alignment) {
+        d->canvasAlignment = alignment;
+        itemChanged();
+    }
+}
+
+/**
+ * @brief Get the alignment flags
+ * @return Alignment flags
+ * @sa setAlignmentInCanvas()
+ *
+ */
+Qt::Alignment QwtPlotLegendItem::alignmentInCanvas() const
+{
+    QWT_DC(d);
+    return d->canvasAlignment;
+}
+
+/**
+ * @brief Limit the number of columns
+ * @param[in] maxColumns Maximum number of columns. 0 means unlimited.
+ * @details When aligning the legend horizontally (Qt::AlignLeft, Qt::AlignRight),
+ *          the number of columns needs to be limited to avoid the width of
+ *          the legend growing with an increasing number of entries.
+ * @sa maxColumns(), QwtDynGridLayout::setMaxColumns()
+ *
+ */
+void QwtPlotLegendItem::setMaxColumns(uint maxColumns)
+{
+    QWT_D(d);
+    if (maxColumns != d->layout->maxColumns()) {
+        d->layout->setMaxColumns(maxColumns);
+        itemChanged();
+    }
+}
+
+/**
+ * @brief Get the maximum number of columns
+ * @return Maximum number of columns
+ * @sa setMaxColumns(), QwtDynGridLayout::maxColumns()
+ *
+ */
+uint QwtPlotLegendItem::maxColumns() const
+{
+    QWT_DC(d);
+    return d->layout->maxColumns();
+}
+
+/**
+ * @brief Set the margin around legend items
+ * @param[in] margin Margin in pixels
+ * @details The default setting for the margin is 0.
+ * @sa margin(), setSpacing(), setItemMargin(), setItemSpacing
+ *
+ */
+void QwtPlotLegendItem::setMargin(int margin)
+{
+    QWT_D(d);
+    margin = qMax(margin, 0);
+    if (margin != this->margin()) {
+        d->layout->setContentsMargins(margin, margin, margin, margin);
+
+        itemChanged();
+    }
+}
+
+/**
+ * @brief Get the margin around the legend items
+ * @return Margin around the legend items
+ * @sa setMargin(), spacing(), itemMargin(), itemSpacing()
+ *
+ */
+int QwtPlotLegendItem::margin() const
+{
+    QWT_DC(d);
+    int left;
+    d->layout->getContentsMargins(&left, nullptr, nullptr, nullptr);
+
+    return left;
+}
+
+/**
+ * @brief Set the spacing between the legend items
+ * @param[in] spacing Spacing in pixels
+ * @sa spacing(), setMargin()
+ *
+ */
+void QwtPlotLegendItem::setSpacing(int spacing)
+{
+    QWT_D(d);
+    spacing = qMax(spacing, 0);
+    if (spacing != d->layout->spacing()) {
+        d->layout->setSpacing(spacing);
+        itemChanged();
+    }
+}
+
+/**
+ * @brief Get the spacing between the legend items
+ * @return Spacing between the legend items
+ * @sa setSpacing(), margin(), itemSpacing(), itemMargin()
+ *
+ */
+int QwtPlotLegendItem::spacing() const
+{
+    QWT_DC(d);
+    return d->layout->spacing();
+}
+
+/**
+ * @brief Set the margin around each item
+ * @param[in] margin Margin
+ * @sa itemMargin(), setItemSpacing(), setMargin(), setSpacing()
+ *
+ */
+void QwtPlotLegendItem::setItemMargin(int margin)
+{
+    QWT_D(d);
+    margin = qMax(margin, 0);
+    if (margin != d->itemMargin) {
+        d->itemMargin = margin;
+
+        d->layout->invalidate();
+        itemChanged();
+    }
+}
+
+/**
+ * @brief Get the margin around each item
+ * @return Margin around each item
+ * @sa setItemMargin(), itemSpacing(), margin(), spacing()
+ *
+ */
+int QwtPlotLegendItem::itemMargin() const
+{
+    QWT_DC(d);
+    return d->itemMargin;
+}
+
+/**
+ * @brief Set the spacing inside of each item
+ * @param[in] spacing Spacing
+ * @sa itemSpacing(), setItemMargin(), setMargin(), setSpacing()
+ *
+ */
+void QwtPlotLegendItem::setItemSpacing(int spacing)
+{
+    QWT_D(d);
+    spacing = qMax(spacing, 0);
+    if (spacing != d->itemSpacing) {
+        d->itemSpacing = spacing;
+
+        d->layout->invalidate();
+        itemChanged();
+    }
+}
+
+/**
+ * @brief Get the spacing inside of each item
+ * @return Spacing inside of each item
+ * @sa setItemSpacing(), itemMargin(), margin(), spacing()
+ *
+ */
+int QwtPlotLegendItem::itemSpacing() const
+{
+    QWT_DC(d);
+    return d->itemSpacing;
+}
+
+/**
+ * @brief Change the font used for drawing the text label
+ * @param[in] font Legend font
+ * @sa font()
+ *
+ */
+void QwtPlotLegendItem::setFont(const QFont& font)
+{
+    QWT_D(d);
+    if (font != d->font) {
+        d->font = font;
+
+        d->layout->invalidate();
+        itemChanged();
+    }
+}
+
+/**
+ * @brief Get the font used for drawing the text label
+ * @return Font used for drawing the text label
+ * @sa setFont()
+ *
+ */
+QFont QwtPlotLegendItem::font() const
+{
+    QWT_DC(d);
+    return d->font;
+}
+
+/**
+ * @brief Set the distance between the legend and the canvas border
+ * @param[in] orientations Qt::Horizontal is for the left/right, Qt::Vertical for the top/bottom offset.
+ * @param[in] numPixels Distance in pixels
+ * @details The default setting is 10 pixels.
+ * @sa setMargin()
+ *
+ */
+void QwtPlotLegendItem::setOffsetInCanvas(Qt::Orientations orientations, int numPixels)
+{
+    QWT_D(d);
+    if (numPixels < 0)
+        numPixels = -1;
+
+    bool isChanged = false;
+
+    int* offset = d->canvasOffset;
+
+    if (orientations & Qt::Horizontal) {
+        if (numPixels != offset[ 0 ]) {
+            offset[ 0 ] = numPixels;
+            isChanged   = true;
+        }
+    }
+
+    if (orientations & Qt::Vertical) {
+        if (numPixels != offset[ 1 ]) {
+            offset[ 1 ] = numPixels;
+            isChanged   = true;
+        }
+    }
+
+    if (isChanged)
+        itemChanged();
+}
+
+/**
+ * @brief Get the distance between the legend and the canvas border
+ * @param[in] orientation Qt::Horizontal is for the left/right, Qt::Vertical for the top/bottom padding.
+ * @return Distance between the legend and the canvas border
+ * @sa setOffsetInCanvas()
+ *
+ */
+int QwtPlotLegendItem::offsetInCanvas(Qt::Orientation orientation) const
+{
+    QWT_DC(d);
+    const int index = (orientation == Qt::Vertical) ? 1 : 0;
+    return d->canvasOffset[ index ];
+}
+
+/**
+ * @brief Set the radius for the border
+ * @param[in] radius A value <= 0 defines a rectangular border
+ * @sa borderRadius(), setBorderPen()
+ *
+ */
+void QwtPlotLegendItem::setBorderRadius(double radius)
+{
+    QWT_D(d);
+    radius = qwtMaxF(0.0, radius);
+
+    if (radius != d->borderRadius) {
+        d->borderRadius = radius;
+        itemChanged();
+    }
+}
+
+/**
+ * @brief Get the radius of the border
+ * @return Radius of the border
+ * @sa setBorderRadius(), setBorderPen()
+ *
+ */
+double QwtPlotLegendItem::borderRadius() const
+{
+    QWT_DC(d);
+    return d->borderRadius;
+}
+
+/**
+ * @brief Set the pen for drawing the border
+ * @param[in] pen Border pen
+ * @sa borderPen(), setBackgroundBrush()
+ *
+ */
+void QwtPlotLegendItem::setBorderPen(const QPen& pen)
+{
+    QWT_D(d);
+    if (d->borderPen != pen) {
+        d->borderPen = pen;
+        itemChanged();
+    }
+}
+
+/**
+ * @brief Get the pen for drawing the border
+ * @return Pen for drawing the border
+ * @sa setBorderPen(), backgroundBrush()
+ *
+ */
+QPen QwtPlotLegendItem::borderPen() const
+{
+    QWT_DC(d);
+    return d->borderPen;
+}
+
+/**
+ * @brief Set the background brush
+ * @param[in] brush Brush used to fill the background
+ * @sa backgroundBrush(), setBackgroundMode(), drawBackground()
+ *
+ */
+void QwtPlotLegendItem::setBackgroundBrush(const QBrush& brush)
+{
+    QWT_D(d);
+    if (d->backgroundBrush != brush) {
+        d->backgroundBrush = brush;
+        itemChanged();
+    }
+}
+
+/**
+ * @brief Get the brush used to fill the background
+ * @return Brush used to fill the background
+ * @sa setBackgroundBrush(), backgroundMode(), drawBackground()
+ *
+ */
+QBrush QwtPlotLegendItem::backgroundBrush() const
+{
+    QWT_DC(d);
+    return d->backgroundBrush;
+}
+
+/**
+ * @brief Set the background mode
+ * @param[in] mode Background mode
+ * @details Depending on the mode the complete legend or each item
+ *          might have a background. The default setting is LegendBackground.
+ * @sa backgroundMode(), setBackgroundBrush(), drawBackground()
+ *
+ */
+void QwtPlotLegendItem::setBackgroundMode(BackgroundMode mode)
+{
+    QWT_D(d);
+    if (mode != d->backgroundMode) {
+        d->backgroundMode = mode;
+        itemChanged();
+    }
+}
+
+/**
+ * @brief Get the background mode
+ * @return Background mode
+ * @sa setBackgroundMode(), backgroundBrush(), drawBackground()
+ *
+ */
+QwtPlotLegendItem::BackgroundMode QwtPlotLegendItem::backgroundMode() const
+{
+    QWT_DC(d);
+    return d->backgroundMode;
+}
+
+/**
+ * @brief Set the pen for drawing text labels
+ * @param[in] pen Text pen
+ * @sa textPen(), setFont()
+ *
+ */
+void QwtPlotLegendItem::setTextPen(const QPen& pen)
+{
+    QWT_D(d);
+    if (d->textPen != pen) {
+        d->textPen = pen;
+        itemChanged();
+    }
+}
+
+/**
+ * @brief Get the pen for drawing text labels
+ * @return Pen for drawing text labels
+ * @sa setTextPen(), font()
+ *
+ */
+QPen QwtPlotLegendItem::textPen() const
+{
+    QWT_DC(d);
+    return d->textPen;
+}
+
+/**
+ * @brief Draw the legend
+ * @param[in] painter Painter
+ * @param[in] xMap X Scale Map
+ * @param[in] yMap Y Scale Map
+ * @param[in] canvasRect Contents rectangle of the canvas in painter coordinates
+ *
+ */
+void QwtPlotLegendItem::draw(QPainter* painter, const QwtScaleMap& xMap, const QwtScaleMap& yMap, const QRectF& canvasRect) const
+{
+    QWT_DC(d);
+    Q_UNUSED(xMap);
+    Q_UNUSED(yMap);
+
+    d->layout->setGeometry(geometry(canvasRect));
+    if (d->layout->geometry().isEmpty()) {
+        // don't draw a legend when having no content
+        return;
+    }
+
+    if (d->backgroundMode == QwtPlotLegendItem::LegendBackground)
+        drawBackground(painter, d->layout->geometry());
+
+    for (int i = 0; i < d->layout->count(); i++) {
+        const LayoutItem* layoutItem = static_cast< LayoutItem* >(d->layout->itemAt(i));
+
+        if (d->backgroundMode == QwtPlotLegendItem::ItemBackground)
+            drawBackground(painter, layoutItem->geometry());
+
+        painter->save();
+
+        drawLegendData(painter, layoutItem->plotItem(), layoutItem->data(), layoutItem->geometry());
+
+        painter->restore();
+    }
+}
+
+/*!
+   Draw a rounded rect
+
+   @param painter Painter
+   @param rect Bounding rectangle
+
+   @sa setBorderRadius(), setBorderPen(),
+      setBackgroundBrush(), setBackgroundMode()
+ */
+void QwtPlotLegendItem::drawBackground(QPainter* painter, const QRectF& rect) const
+{
+    QWT_DC(d);
+    painter->save();
+
+    painter->setPen(d->borderPen);
+    painter->setBrush(d->backgroundBrush);
+
+    const double radius = d->borderRadius;
+    painter->drawRoundedRect(rect, radius, radius);
+
+    painter->restore();
+}
+
+/**
+ * @brief Calculate the geometry of the legend on the canvas
+ * @param[in] canvasRect Geometry of the canvas
+ * @return Geometry of the legend
+ *
+ */
+QRect QwtPlotLegendItem::geometry(const QRectF& canvasRect) const
+{
+    QWT_DC(d);
+    QRect rect;
+    rect.setSize(d->layout->sizeHint());
+
+    if (d->canvasAlignment & Qt::AlignHCenter) {
+        int x = qRound(canvasRect.center().x());
+        rect.moveCenter(QPoint(x, rect.center().y()));
+    } else if (d->canvasAlignment & Qt::AlignRight) {
+        const int offset = offsetInCanvas(Qt::Horizontal);
+        rect.moveRight(qwtFloor(canvasRect.right() - offset));
+    } else {
+        const int offset = offsetInCanvas(Qt::Horizontal);
+        rect.moveLeft(qwtCeil(canvasRect.left() + offset));
+    }
+
+    if (d->canvasAlignment & Qt::AlignVCenter) {
+        int y = qRound(canvasRect.center().y());
+        rect.moveCenter(QPoint(rect.center().x(), y));
+    } else if (d->canvasAlignment & Qt::AlignBottom) {
+        const int offset = offsetInCanvas(Qt::Vertical);
+        rect.moveBottom(qwtFloor(canvasRect.bottom() - offset));
+    } else {
+        const int offset = offsetInCanvas(Qt::Vertical);
+        rect.moveTop(qwtCeil(canvasRect.top() + offset));
+    }
+
+    return rect;
+}
+
+/**
+ * @brief Update the legend items according to modifications of a plot item
+ * @param[in] plotItem Plot item
+ * @param[in] data Attributes of the legend entries
+ *
+ */
+void QwtPlotLegendItem::updateLegend(const QwtPlotItem* plotItem, const QList< QwtLegendData >& data)
+{
+    QWT_D(d);
+    if (plotItem == nullptr)
+        return;
+
+    QList< LayoutItem* > layoutItems;
+
+    QMap< const QwtPlotItem*, QList< LayoutItem* > >::const_iterator it = d->map.constFind(plotItem);
+    if (it != d->map.constEnd())
+        layoutItems = it.value();
+
+    bool changed = false;
+
+    if (data.size() != layoutItems.size()) {
+        changed = true;
+
+        for (int i = 0; i < layoutItems.size(); i++) {
+            d->layout->removeItem(layoutItems[ i ]);
+            delete layoutItems[ i ];
+        }
+        layoutItems.clear();
+
+        if (it != d->map.constEnd())
+            d->map.remove(plotItem);
+
+        if (!data.isEmpty()) {
+            layoutItems.reserve(data.size());
+
+            for (int i = 0; i < data.size(); i++) {
+                LayoutItem* layoutItem = new LayoutItem(this, plotItem);
+                d->layout->addItem(layoutItem);
+                layoutItems += layoutItem;
+            }
+
+            d->map.insert(plotItem, layoutItems);
+        }
+    }
+
+    for (int i = 0; i < data.size(); i++) {
+        if (layoutItems[ i ]->data().values() != data[ i ].values()) {
+            layoutItems[ i ]->setData(data[ i ]);
+            changed = true;
+        }
+    }
+
+    if (changed) {
+        d->layout->invalidate();
+        itemChanged();
+    }
+}
+
+/**
+ * @brief Remove all items from the legend
+ *
+ */
+void QwtPlotLegendItem::clearLegend()
+{
+    QWT_D(d);
+    if (!d->map.isEmpty()) {
+        d->map.clear();
+
+        for (int i = d->layout->count() - 1; i >= 0; i--)
+            delete d->layout->takeAt(i);
+
+        itemChanged();
+    }
+}
+
+/*!
+   Draw an entry on the legend
+
+   @param painter Qt Painter
+   @param plotItem Plot item, represented by the entry
+   @param data Attributes of the legend entry
+   @param rect Bounding rectangle for the entry
+ */
+void QwtPlotLegendItem::drawLegendData(QPainter* painter,
+                                       const QwtPlotItem* plotItem,
+                                       const QwtLegendData& data,
+                                       const QRectF& rect) const
+{
+    QWT_DC(d);
+    Q_UNUSED(plotItem);
+
+    const int m    = d->itemMargin;
+    const QRectF r = rect.toRect().adjusted(m, m, -m, -m);
+
+    painter->setClipRect(r, Qt::IntersectClip);
+
+    int titleOff = 0;
+
+    const QwtGraphic graphic = data.icon();
+    if (!graphic.isEmpty()) {
+        QRectF iconRect(r.topLeft(), graphic.defaultSize());
+
+        iconRect.moveCenter(QPoint(iconRect.center().x(), rect.center().y()));
+
+        graphic.render(painter, iconRect, Qt::KeepAspectRatio);
+
+        titleOff += iconRect.width() + d->itemSpacing;
+    }
+
+    const QwtText text = data.title();
+    if (!text.isEmpty()) {
+        painter->setPen(textPen());
+        painter->setFont(font());
+
+        const QRectF textRect = r.adjusted(titleOff, 0, 0, 0);
+        text.draw(painter, textRect);
+    }
+}
+
+/**
+ * @brief Get the minimum size hint needed to display an entry
+ * @param[in] data Attributes of the legend entry
+ * @return Minimum size
+ *
+ */
+QSize QwtPlotLegendItem::minimumSize(const QwtLegendData& data) const
+{
+    QWT_DC(d);
+    QSize size(2 * d->itemMargin, 2 * d->itemMargin);
+
+    if (!data.isValid())
+        return size;
+
+    const QwtGraphic graphic = data.icon();
+    const QwtText text       = data.title();
+
+    int w = 0;
+    int h = 0;
+
+    if (!graphic.isNull()) {
+        w = graphic.width();
+        h = graphic.height();
+    }
+
+    if (!text.isEmpty()) {
+        const QSizeF sz = text.textSize(font());
+
+        w += qwtCeil(sz.width());
+        h = qMax(h, qwtCeil(sz.height()));
+    }
+
+    if (graphic.width() > 0 && !text.isEmpty())
+        w += d->itemSpacing;
+
+    size += QSize(w, h);
+    return size;
+}
+
+/**
+ * @brief Get the preferred height for a given width
+ * @param[in] data Attributes of the legend entry
+ * @param[in] width Width
+ * @return The preferred height
+ *
+ */
+int QwtPlotLegendItem::heightForWidth(const QwtLegendData& data, int width) const
+{
+    QWT_DC(d);
+    width -= 2 * d->itemMargin;
+
+    const QwtGraphic graphic = data.icon();
+    const QwtText text       = data.title();
+
+    if (text.isEmpty())
+        return graphic.height();
+
+    if (graphic.width() > 0)
+        width -= graphic.width() + d->itemSpacing;
+
+    int h = text.heightForWidth(width, font());
+    h += 2 * d->itemMargin;
+
+    return qMax(graphic.height(), h);
+}
+
+/**
+ * @brief Get all plot items with an entry on the legend
+ * @return All plot items with an entry on the legend
+ * @note A plot item might have more than one entry on the legend
+ *
+ */
+QList< const QwtPlotItem* > QwtPlotLegendItem::plotItems() const
+{
+    QWT_DC(d);
+    return d->map.keys();
+}
+
+/**
+ * @brief Get geometries of the items of a plot item
+ * @param[in] plotItem Plot item
+ * @return Geometries of the items of a plot item
+ * @note Usually a plot item has only one entry on the legend
+ *
+ */
+QList< QRect > QwtPlotLegendItem::legendGeometries(const QwtPlotItem* plotItem) const
+{
+    QWT_DC(d);
+    QList< LayoutItem* > layoutItems;
+
+    QMap< const QwtPlotItem*, QList< LayoutItem* > >::const_iterator it = d->map.constFind(plotItem);
+    if (it != d->map.constEnd())
+        layoutItems = it.value();
+
+    QList< QRect > geometries;
+    geometries.reserve(layoutItems.size());
+
+    for (int i = 0; i < layoutItems.size(); i++)
+        geometries += layoutItems[ i ]->geometry();
+
+    return geometries;
+}

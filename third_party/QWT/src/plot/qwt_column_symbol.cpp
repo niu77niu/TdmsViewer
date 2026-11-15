@@ -1,0 +1,344 @@
+/******************************************************************************
+ * Qwt Widget Library
+ * Copyright (C) 1997   Josef Wilgen
+ * Copyright (C) 2002   Uwe Rathmann
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the Qwt License, Version 1.0
+ *
+ * Modified by ChenZongYan in 2024 <czy.t@163.com>
+ *   Summary of major modifications (see ChangeLog.md for full history):
+ *   1. CMake build system & C++11 throughout.
+ *   2. Core panner/ zoomer refactored:
+ *        - QwtPanner → QwtCachePanner (pixmap-cache version)
+ *        - New real-time QwtPlotPanner derived from QwtPicker.
+ *   3. Zoomer supports multi-axis.
+ *   4. Parasite-plot framework:
+ *        - QwtFigure, QwtPlotParasiteLayout, QwtPlotTransparentCanvas,
+ *        - QwtPlotScaleEventDispatcher, built-in pan/zoom on axis.
+ *   5. New picker: QwtPlotSeriesDataPicker (works with date axis).
+ *   6. Raster & color-map extensions:
+ *        - QwtGridRasterData (2-D table + interpolation)
+ *        - QwtLinearColorMap::stopColors(), stopPos() API rename.
+ *   7. Bar-chart: expose pen/brush control.
+ *   8. Amalgamated build: single QwtPlot.h / QwtPlot.cpp pair in src-amalgamate.
+ *****************************************************************************/
+
+#include "qwt_column_symbol.h"
+#include "qwt_painter.h"
+#include "qwt_math.h"
+
+#include <qpainter.h>
+#include <qpalette.h>
+
+/**
+ * @brief draw a box
+ * __
+ * |*|
+ * |*|
+ *
+ * @param p
+ * @param rect
+ * @param pen
+ * @param brush
+ */
+static void qwtDrawBox(QPainter* p, const QRectF& rect, const QPen& pen, const QBrush& brush)
+{
+    if (rect.isValid()) {
+        // A valid rectangle has a width() > 0 and height() > 0
+        p->fillRect(rect, brush);
+        if (rect.width() > 2 * pen.widthF()) {
+            // Ensure line width does not exceed half the rectangle's width or height
+            p->setPen(pen);
+            p->drawRect(rect);
+        }
+    } else {
+        // Invalid rectangle: the chart may have been scaled too small, resulting in zero width or height
+        // Only draw border lines when the rectangle width is greater than twice the pen width
+        if (qFuzzyIsNull(rect.width())) {
+            // No width
+            p->setPen(brush.color());
+            p->drawLine(rect.topLeft(), rect.bottomLeft());
+            return;
+        }
+        // No height
+        if (qFuzzyIsNull(rect.height())) {
+            p->setPen(brush.color());
+            p->drawLine(rect.topLeft(), rect.topRight());
+            return;
+        }
+    }
+}
+
+static void qwtDrawPanel(QPainter* painter, const QRectF& rect, const QPen& pen, const QBrush& brush)
+{
+    qreal lw = pen.widthF();
+    if (lw > 0.0) {
+        if (rect.width() == 0.0) {
+            painter->setPen(brush.color());
+            painter->drawLine(rect.topLeft(), rect.bottomLeft());
+            return;
+        }
+
+        if (rect.height() == 0.0) {
+            painter->setPen(brush.color());
+            painter->drawLine(rect.topLeft(), rect.topRight());
+            return;
+        }
+
+        lw        = qwtMinF(lw, rect.height() / 2.0 - 1.0);
+        qreal lw2 = qwtMinF(lw, rect.width() / 2.0 - 1.0);
+        lw        = qwtMinF(lw, lw2);
+
+        const QRectF outerRect = rect.adjusted(0, 0, 1, 1);
+        const QRectF innerRect = outerRect.adjusted(lw, lw, -lw, -lw);
+
+        QPolygonF lines[ 2 ];
+
+        lines[ 0 ] += outerRect.bottomLeft();
+        lines[ 0 ] += outerRect.topLeft();
+        lines[ 0 ] += outerRect.topRight();
+        lines[ 0 ] += innerRect.topRight();
+        lines[ 0 ] += innerRect.topLeft();
+        lines[ 0 ] += innerRect.bottomLeft();
+
+        lines[ 1 ] += outerRect.topRight();
+        lines[ 1 ] += outerRect.bottomRight();
+        lines[ 1 ] += outerRect.bottomLeft();
+        lines[ 1 ] += innerRect.bottomLeft();
+        lines[ 1 ] += innerRect.bottomRight();
+        lines[ 1 ] += innerRect.topRight();
+
+        painter->setPen(Qt::NoPen);
+
+        painter->setBrush(brush.color().lighter());
+        painter->drawPolygon(lines[ 0 ]);
+        painter->setBrush(brush.color().darker());
+        painter->drawPolygon(lines[ 1 ]);
+    }
+
+    painter->fillRect(rect.adjusted(lw, lw, -lw + 1, -lw + 1), brush);
+}
+
+class QwtColumnSymbol::PrivateData
+{
+    QWT_DECLARE_PUBLIC(QwtColumnSymbol)
+public:
+    PrivateData(QwtColumnSymbol* p) : q_ptr(p), style(QwtColumnSymbol::Box), frameStyle(QwtColumnSymbol::Plain)
+    {
+    }
+
+    QwtColumnSymbol::Style style;
+    QwtColumnSymbol::FrameStyle frameStyle;
+    // add by qwt 2,you can set pen and brush to draw bar
+    QPen pen;
+    QBrush brush;
+};
+
+/**
+ * @brief Constructor
+ * @param[in] style Style of the symbol
+ * @sa setStyle(), style(), Style
+ */
+QwtColumnSymbol::QwtColumnSymbol(Style style) : QWT_PIMPL_CONSTRUCT
+{
+    QWT_D(d);
+    d->style = style;
+    d->pen   = QPen(QColor("#888888"), 1);
+    d->brush = QBrush(QColor("#c0c0c0"));
+}
+
+/**
+ * @brief Destructor
+ */
+QwtColumnSymbol::~QwtColumnSymbol()
+{
+}
+
+/**
+ * @brief Specify the symbol style
+ * @param[in] style Style to set
+ * @sa style(), setPalette()
+ */
+void QwtColumnSymbol::setStyle(Style style)
+{
+    QWT_D(d);
+    d->style = style;
+}
+
+/**
+ * @brief Return current symbol style
+ * @return Current style
+ * @sa setStyle()
+ */
+QwtColumnSymbol::Style QwtColumnSymbol::style() const
+{
+    QWT_DC(d);
+    return d->style;
+}
+
+/**
+ * @brief Specify the outline pen
+ * @param[in] pen Pen to use for drawing the outline
+ */
+void QwtColumnSymbol::setPen(const QPen& pen)
+{
+    QWT_D(d);
+    d->pen = pen;
+}
+
+/**
+ * @brief Return the outline pen
+ * @return Current pen used for drawing the outline
+ */
+QPen QwtColumnSymbol::pen() const
+{
+    QWT_DC(d);
+    return d->pen;
+}
+
+/**
+ * @brief Specify the fill brush
+ * @param[in] b Brush to use for filling the column
+ */
+void QwtColumnSymbol::setBrush(const QBrush& b)
+{
+    QWT_D(d);
+    d->brush = b;
+}
+
+/**
+ * @brief Return the fill brush
+ * @return Current brush used for filling the column
+ */
+QBrush QwtColumnSymbol::brush() const
+{
+    QWT_DC(d);
+    return d->brush;
+}
+
+/**
+ * @brief Set the frame style that is used for the Box style
+ * @param[in] frameStyle Frame style to set
+ * @sa frameStyle(), setLineWidth(), setStyle()
+ */
+void QwtColumnSymbol::setFrameStyle(FrameStyle frameStyle)
+{
+    QWT_D(d);
+    d->frameStyle = frameStyle;
+}
+
+/**
+ * @brief Return current frame style that is used for the Box style
+ * @return Current frame style
+ * @sa setFrameStyle(), lineWidth(), setStyle()
+ */
+QwtColumnSymbol::FrameStyle QwtColumnSymbol::frameStyle() const
+{
+    QWT_DC(d);
+    return d->frameStyle;
+}
+
+/**
+ * @brief Set the line width of the frame that is used for the Box style
+ * @param[in] width Width of the frame line
+ * @sa lineWidth(), setFrameStyle()
+ */
+void QwtColumnSymbol::setLineWidth(int width)
+{
+    QWT_D(d);
+    if (width < 0)
+        width = 0;
+
+    d->pen.setWidth(width);
+}
+
+/**
+ * @brief Return line width of the frame that is used for the Box style
+ * @return Current line width
+ * @sa setLineWidth(), frameStyle(), setStyle()
+ */
+int QwtColumnSymbol::lineWidth() const
+{
+    QWT_DC(d);
+    return d->pen.width();
+}
+
+/**
+ * @brief Draw the symbol depending on its style
+ * @param[in] painter Painter to use for drawing
+ * @param[in] rect Directed rectangle defining the column bounds
+ * @sa drawBox()
+ */
+void QwtColumnSymbol::draw(QPainter* painter, const QwtColumnRect& rect) const
+{
+    QWT_DC(d);
+    painter->save();
+
+    switch (d->style) {
+    case QwtColumnSymbol::Box: {
+        drawBox(painter, rect);
+        break;
+    }
+    default:;
+    }
+
+    painter->restore();
+}
+
+void QwtColumnSymbol::drawBox(QPainter* painter, const QwtColumnRect& rect) const
+{
+    QWT_DC(d);
+    QRectF r = rect.toRect();
+    if (QwtPainter::roundingAlignment(painter)) {
+        r.setLeft(qRound(r.left()));
+        r.setRight(qRound(r.right()));
+        r.setTop(qRound(r.top()));
+        r.setBottom(qRound(r.bottom()));
+    }
+
+    switch (d->frameStyle) {
+    case QwtColumnSymbol::Raised: {
+        qwtDrawPanel(painter, r, d->pen, d->brush);
+        break;
+    }
+    case QwtColumnSymbol::Plain: {
+        // qwtDrawBox(painter, r, d->palette, d->lineWidth);
+        qwtDrawBox(painter, r, d->pen, d->brush);
+        break;
+    }
+    default: {
+        painter->fillRect(r.adjusted(0, 0, 1, 1), d->brush);
+    }
+    }
+}
+
+/**
+ * @brief Return a normalized QRect built from the intervals
+ * @details Converts the horizontal and vertical intervals into a QRectF,
+ *          handling exclude minimum/maximum flags appropriately.
+ * @return Normalized rectangle
+ */
+QRectF QwtColumnRect::toRect() const
+{
+    QRectF r(hInterval.minValue(),
+             vInterval.minValue(),
+             hInterval.maxValue() - hInterval.minValue(),
+             vInterval.maxValue() - vInterval.minValue());
+
+    r = r.normalized();
+
+    if (hInterval.borderFlags() & QwtInterval::ExcludeMinimum)
+        r.adjust(1, 0, 0, 0);
+
+    if (hInterval.borderFlags() & QwtInterval::ExcludeMaximum)
+        r.adjust(0, 0, -1, 0);
+
+    if (vInterval.borderFlags() & QwtInterval::ExcludeMinimum)
+        r.adjust(0, 1, 0, 0);
+
+    if (vInterval.borderFlags() & QwtInterval::ExcludeMaximum)
+        r.adjust(0, 0, 0, -1);
+
+    return r;
+}

@@ -1,0 +1,141 @@
+/******************************************************************************
+ * Qwt Widget Library
+ * Copyright (C) 1997   Josef Wilgen
+ * Copyright (C) 2002   Uwe Rathmann
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the Qwt License, Version 1.0
+ *
+ * Modified by ChenZongYan in 2024 <czy.t@163.com>
+ *   Summary of major modifications (see ChangeLog.md for full history):
+ *   1. CMake build system & C++11 throughout.
+ *   2. Core panner/ zoomer refactored:
+ *        - QwtPanner → QwtCachePanner (pixmap-cache version)
+ *        - New real-time QwtPlotPanner derived from QwtPicker.
+ *   3. Zoomer supports multi-axis.
+ *   4. Parasite-plot framework:
+ *        - QwtFigure, QwtPlotParasiteLayout, QwtPlotTransparentCanvas,
+ *        - QwtPlotScaleEventDispatcher, built-in pan/zoom on axis.
+ *   5. New picker: QwtPlotSeriesDataPicker (works with date axis).
+ *   6. Raster & color-map extensions:
+ *        - QwtGridRasterData (2-D table + interpolation)
+ *        - QwtLinearColorMap::stopColors(), stopPos() API rename.
+ *   7. Bar-chart: expose pen/brush control.
+ *   8. Amalgamated build: single QwtPlot.h / QwtPlot.cpp pair in src-amalgamate.
+ *****************************************************************************/
+
+#ifndef QWT_PLOT_GLCANVAS_H
+#define QWT_PLOT_GLCANVAS_H
+
+#include "qwt_global.h"
+#include "qwt_plot_abstract_canvas.h"
+
+#include <qgl.h>
+#include <qpainterpath.h>
+
+class QwtPlot;
+
+/**
+ * @brief An alternative canvas for a QwtPlot derived from QGLWidget
+ * @details QwtPlotGLCanvas implements the very basics to act as canvas
+ *          inside of a QwtPlot widget. It might be extended to a full
+ *          featured alternative to QwtPlotCanvas in a future version of Qwt.
+ *
+ *          Even if QwtPlotGLCanvas is not derived from QFrame it imitates
+ *          its API. When using style sheets it supports the box model - beside
+ *          backgrounds with rounded borders.
+ *
+ *          Since Qt 5.4 QOpenGLWidget is available, that is used by QwtPlotOpenGLCanvas.
+ *
+ * @sa QwtPlot::setCanvas(), QwtPlotCanvas, QwtPlotOpenGLCanvas
+ *
+ * @note With Qt4 you might want to use the QPaintEngine::OpenGL paint engine
+ *       ( see QGL::setPreferredPaintEngine() ). On a Linux test system
+ *       QPaintEngine::OpenGL2 shows very basic problems like translated
+ *       geometries.
+ *
+ * @note Another way for getting hardware accelerated graphics is using
+ *       an OpenGL offscreen buffer ( QwtPlotCanvas::OpenGLBuffer ) with QwtPlotCanvas.
+ *       Performance is worse, than rendering straight to a QGLWidget, but is usually
+ *       better integrated into a desktop application.
+ */
+class QWT_EXPORT QwtPlotGLCanvas : public QGLWidget, public QwtPlotAbstractGLCanvas
+{
+    Q_OBJECT
+
+    Q_PROPERTY(QFrame::Shadow frameShadow READ frameShadow WRITE setFrameShadow)
+    Q_PROPERTY(QFrame::Shape frameShape READ frameShape WRITE setFrameShape)
+    Q_PROPERTY(int lineWidth READ lineWidth WRITE setLineWidth)
+    Q_PROPERTY(int midLineWidth READ midLineWidth WRITE setMidLineWidth)
+    Q_PROPERTY(int frameWidth READ frameWidth)
+    Q_PROPERTY(QRect frameRect READ frameRect DESIGNABLE false)
+
+    Q_PROPERTY(double borderRadius READ borderRadius WRITE setBorderRadius)
+
+public:
+    /**
+     * @brief Constructor
+     */
+    explicit QwtPlotGLCanvas(QwtPlot* = nullptr);
+    /**
+     * @brief Constructor with QGLFormat
+     */
+    explicit QwtPlotGLCanvas(const QGLFormat&, QwtPlot* = nullptr);
+    /**
+     * @brief Destructor
+     */
+    ~QwtPlotGLCanvas() override;
+
+    /**
+     * @brief Invalidate the backing store
+     */
+    Q_INVOKABLE virtual void invalidateBackingStore() override;
+    /**
+     * @brief Get the border path
+     */
+    Q_INVOKABLE QPainterPath borderPath(const QRect&) const;
+
+    /**
+     * @brief Handle events
+     */
+    virtual bool event(QEvent*) override;
+
+public Q_SLOTS:
+    /**
+     * @brief Replot the canvas
+     */
+    void replot();
+
+protected:
+    /**
+     * @brief Paint event handler
+     */
+    virtual void paintEvent(QPaintEvent*) override;
+
+    /**
+     * @brief Initialize OpenGL
+     */
+    virtual void initializeGL() override;
+    /**
+     * @brief Paint OpenGL scene
+     */
+    virtual void paintGL() override;
+    /**
+     * @brief Resize OpenGL view
+     */
+    virtual void resizeGL(int width, int height) override;
+
+private:
+    /**
+     * @brief Initialize the canvas
+     */
+    void init();
+    /**
+     * @brief Clear the backing store
+     */
+    virtual void clearBackingStore() override;
+
+    QWT_DECLARE_PRIVATE(QwtPlotGLCanvas)
+};
+
+#endif

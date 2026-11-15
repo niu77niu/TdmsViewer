@@ -1,0 +1,366 @@
+# Qwt Documentation Writing Standards
+
+This guide defines how Qwt documentation is written: what each page should contain, which Markdown subset to use, and which habits to avoid.
+
+The project documentation is built with MkDocs, using the [mkdocs-material](https://squidfunk.github.io/mkdocs-material/getting-started/) theme. The Markdown sources, however, must stay **platform-generic**: the same file has to render correctly on the MkDocs site and on other platforms such as GitHub and GitLab. Write only syntax that plain Markdown and GitHub-Flavored Markdown support, and avoid renderer-specific extensions.
+
+Do not use: Material admonitions (`!!!`, `???`), tabbed content (`=== "tab"`), attribute lists (`{: .class }`), emoji shortcodes (`:material-...:`), pymdownx keys (`++ctrl++`) or marks (`==highlight==`). Anything of that kind renders as literal text as soon as the file is viewed outside the MkDocs build.
+
+Project documentation diagrams should primarily use `mermaid`.
+
+The site enables the `nl2br` Markdown extension: **every single line break inside a paragraph renders as a hard line break (`<br>`)**. Never hard-wrap prose — write each paragraph as one continuous line and separate blocks with blank lines. Hard-wrapped source text is exactly what produces "broken line wrapping" artifacts on the rendered site.
+
+## Documentation System: Folders and Audiences
+
+The documentation tree is organized by audience. Place every new page by asking "who is this for?" first:
+
+| Folder | Audience | Answers | Style |
+|--------|----------|---------|-------|
+| `build-guide/` | Users integrating QWT into their builds | "How do I compile/link QWT?" | Exact, verified commands per platform and build system |
+| `use-guide/` | End users of the library | "How do I draw X / do Y?" | Cookbook tutorials: plain language, step-by-step, richly illustrated |
+| `tech-report/` | Developers wanting depth: principles & performance | "Why is it designed this way? How well does it perform?" | Paper-standard articles with derivations and reproducible experiments |
+| `dev-guide/` | Contributors to QWT itself | "What conventions does the codebase follow?" | Normative: coding/comment standards, architecture records |
+
+### use-guide/ — the QWT Cookbook
+
+`use-guide/` is layered so the whole directory reads as one book (the "QWT Cookbook"):
+
+- `use-guide/*.md` (root): universal getting-started material that is neither 2D- nor 3D-specific — importing the library, the first plot, release feature overviews;
+- `use-guide/2d/`: everything about 2D plotting — chart items, containers & layout, axes & scales, interaction, rendering & export, high-level APIs;
+- `use-guide/3d/`: the `Qwt3DPlot` + `Qwt3DPlotItem` world;
+- `use-guide/general/`: cross-cutting topics shared by 2D and 3D or independent of both — series data, NaN semantics, colormaps, control widgets.
+
+Writing principles for tutorials:
+
+1. **Plain and progressive**: assume the reader knows Qt but not QWT; lead with the task, then concepts, then API details ("what → why → how");
+2. **Richly illustrated**: every tutorial page shows results — reference the bundled example's screenshot from `docs/assets/screenshots/` (or `screenshots-3D/`) and describe what it shows;
+3. **Every example is covered**: each program under `examples/` is mentioned by at least one tutorial page, ideally with its screenshot; when adding an example, add or update the referencing page in the same change;
+4. **Book style**: chapters stand alone but cross-link freely (related topics, deep dives); keep terminology consistent across chapters;
+5. **Runnable code**: examples compile as-is with their includes shown.
+
+### tech-report/ — publication-standard articles
+
+`tech-report/` holds the algorithm/architecture deep dives; `tech-report/index.md` states the full standard and the topic roadmap. In one paragraph: paper structure (abstract, derivation, experiments, discussion, references), matplotlib-generated data figures with reproducible scripts in `docs/assets/algorithms/`, mermaid for pipelines and architecture, benchmarks that state their environment, and an honest failure-mode analysis. Tutorials and reports cross-link: the tutorial answers "how", the report answers "why and how well".
+
+### Bilingual parity
+
+English pages live at the `docs/` root, Chinese pages under `docs/zh/` with the same relative paths (`docs/use-guide/2d/curve.md` ↔ `docs/zh/use-guide/2d/curve.md`). Any added, moved or restructured page must be updated in **both** trees in the same change, including the two `nav` blocks in `mkdocs.yml`.
+
+## Document Structure
+
+### 1. Heading Hierarchy
+
+The skeleton below shows the required heading order; add deeper levels only when a section genuinely needs subdivision:
+
+```markdown
+# Class Name / Feature Name
+## Key Features
+## Usage
+### Sub-Feature Module
+#### Specific Feature Point
+## Notes
+## References
+```
+
+### 2. Required Sections
+
+Each feature document uses the following sections:
+
+| Section | Required | Description |
+|------|----------|------|
+| Feature Overview | Required | One or two paragraphs on what the class does and when to use it |
+| Key Features | Optional | Plain bullets, or prose when there are only a few points; no emoji, no bold labels |
+| Usage | Required | Detailed usage steps and code examples |
+| Notes | Recommended | Use blockquote callouts to highlight important information |
+| References | Optional | Related documentation and example path links |
+
+## Content Writing Principles
+
+### 1. Text Description Requirements
+
+- **Every code block must be preceded and followed by text**: Explain the code's purpose, key steps, and output
+- **Avoid pure code dumps**: Code should not dominate the document; text descriptions should account for at least 60%
+- **Progressive guidance**: Organize content in a logical order of "what → why → how"
+- **No bare code under a heading**: a heading must never be followed directly by a code fence; put at least one prose paragraph between the heading and the first code block, naming the class/interface the section covers and what the code demonstrates (diagrams and pseudocode get a one-line lead-in as well)
+
+### 2. Feature Introduction Format
+
+Describe features in plain sentences. A short bullet list is fine when the items are parallel and easy to scan, but keep it plain: no emoji, no bold labels, and no repeated "**Feature Name**: description" template.
+
+```markdown
+QwtPlotCurve supports line, step, stick and dot styles. Symbols can be drawn at
+each sample, and the area between the curve and a baseline can be filled.
+
+- Line, step, stick and dot drawing modes
+- Symbols at data points
+- Optional fill between the curve and a baseline
+```
+
+If there are only two or three items, write a sentence instead of a list.
+
+### 3. Code Example Standards
+
+Code examples must include:
+
+1. **Comment descriptions**: Key lines must have comments
+2. **Complete and runnable**: Example code should run directly (with necessary header includes)
+3. **Effect description**: Describe the running effect after the code, accompanied by screenshots or diagrams
+
+```cpp
+// Create a box chart object
+QwtPlotBoxChart* boxChart = new QwtPlotBoxChart("Title");
+boxChart->attach(plot);  // Must be attached to a plot to display
+
+// Set data
+QVector<QwtBoxSample> samples;
+samples << QwtBoxSample(1.0, 10, 20, 35, 50, 60);
+boxChart->setSamples(samples);  // Automatically refreshes after data is set
+
+// Effect: Displays a box chart with box, whiskers, and median line
+```
+
+### 4. Concept Explanation Requirements
+
+For complex concepts, use the following methods to aid explanation:
+
+- **Mermaid UML diagrams**: Show class relationships and inheritance hierarchies
+- **Mermaid flowcharts**: Show workflows
+- **ASCII art diagrams**: Show structural diagrams
+- **Screenshots**: Actual effect screenshots
+
+Example (class relationship diagram):
+
+```mermaid
+classDiagram
+    class QwtPlotSeriesItem {
+        +drawSeries()
+        +boundingRect()
+    }
+    class QwtSeriesStore~T~ {
+        +setData()
+        +sample()
+    }
+    class QwtPlotBoxChart {
+        +setBoxStyle()
+        +setOrientation()
+    }
+
+    QwtPlotSeriesItem <|-- QwtPlotBoxChart
+    QwtSeriesStore <|-- QwtPlotBoxChart
+```
+
+### 5. Notes Format
+
+Important information is wrapped in a blockquote callout: a bold label, optionally followed by a title after an em dash, a blank quoted separator line, then the content prefixed with `> `. This is plain Markdown, so it renders on the MkDocs site and on GitHub or GitLab alike.
+
+```markdown
+> **Warning — Do not load data before attach()**
+>
+> Information that could lead to serious issues
+
+> **Note — Default settings**
+>
+> Supplementary information
+
+> **Tip**
+>
+> Usage tips and recommendations, title optional
+```
+
+Label vocabulary:
+
+| Label | Used for |
+|-------|----------|
+| `Note` | Supplementary information, default behavior |
+| `Info` | Background, scope and context |
+| `Tip` | Usage tips, recommendations, migration hints |
+| `Warning` | Caveats that produce wrong or blank plots |
+| `Example` | Example code path or demonstration snippet |
+| `Bug` | Known defects and workarounds |
+| `Abstract` | Executive summary of a long article |
+
+Chinese documents use the same form with the labels 说明 / 信息 / 提示 / 警告 / 示例 / 已知问题 / 摘要. Do not add a label when the quoted text is self-explanatory; a plain blockquote is enough.
+
+### 6. Property/Method Description Format
+
+Use table format to display core properties and methods:
+
+```markdown
+### Core Methods
+
+| Method | Parameters | Description |
+|------|------|------|
+| `setBoxStyle(Style)` | BoxStyle enum | Set the box display style |
+| `setOrientation(Orient)` | Qt::Orientation | Set the display orientation |
+```
+
+## Diagram Usage Standards
+
+### 1. Mermaid Class Diagrams
+
+Used to show class inheritance and composition relationships:
+
+```mermaid
+classDiagram
+    class BaseClass {
+        +virtual method()
+    }
+    class DerivedClass {
+        +override method()
+    }
+    BaseClass <|-- DerivedClass
+```
+
+### 2. Mermaid Flowcharts
+
+Used to show usage workflows and processes:
+
+```mermaid
+flowchart TD
+    A[Create Object] --> B[Set Data]
+    B --> C[Configure Style]
+    C --> D[Attach to Plot]
+    D --> E[Refresh Display]
+```
+
+### 3. Structural Diagrams
+
+Use text or ASCII art to draw structural diagrams:
+
+```text
+    │         ┌──┬──┐
+    │         │  │  │ ← Q3
+    │         │  ┼  │ ← Median
+    │         │  │  │ ← Q1
+    │    ─────┴──┴──┴─────
+```
+
+### 4. Effect Screenshots
+
+Actual runtime screenshots should be placed in the `docs/assets/` directory:
+
+```markdown
+![boxchart-demo](assets/screenshots/boxchart-demo.png)
+```
+
+For effect screenshots, precede them with a text description referencing the relevant example, for instance:
+
+```markdown
+The box chart example is located in: `examples/2D/boxchart`. Screenshot below:
+
+![BoxChart](assets/screenshots/BoxChart.png)
+
+```
+
+## Document Style Consistency
+
+### 1. Language Style
+
+- Use **English as the primary language**; technical terms can remain in their original form
+- Use plain technical English; avoid conversational filler and slang
+- Reduce passive voice; use active voice: "You can set..." rather than "It can be set..."
+
+### 2. Prose Style
+
+Write documentation the way an engineer explains code to a colleague. The subject of a sentence should be the class, the function or the behavior, not the page itself.
+
+- Do not open with "This article provides..." or "This page covers...". Start with the subject.
+- Do not use "not just X, but Y", "it is not X, it is Y", or three-part parallel constructions as rhetorical devices.
+- Avoid promotional adjectives: powerful, comprehensive, robust, seamless, elegant, effortless, cutting-edge. Describe what the code does and let measurements carry the argument.
+- Do not bold every technical term. Bold is reserved for callout labels and warnings; ordinary emphasis comes from sentence position.
+- Do not add a closing summary that repeats the introduction. End when the content ends, or summarize only decisions the reader must act on.
+- Do not use emoji (✅, 🚀, 💡, ⚠️ and similar) in prose or lists.
+- Use em dashes sparingly. A colon, comma or full stop is usually clearer.
+
+### 3. Terminology Standards
+
+| English Term | Description |
+|----------|------|
+| Box-and-Whisker Plot | Statistical chart |
+| Quartile | Q1, Q2, Q3 |
+| Outlier | Data points outside the normal range |
+| Whisker | Extension lines of a box chart |
+
+### 4. Code Style
+
+- Use full class paths: `QwtPlotBoxChart`
+- Use code format for method names: `setBoxStyle()`
+- Use code format for property names: `boxStyle`
+- Use full paths for enum values: `QwtPlotBoxChart::Rect`
+
+## Writing Workflow Suggestions
+
+1. **Gather information**: Read class header files, example code, and related documentation
+2. **Determine structure**: Plan the document framework according to the required sections
+3. **Write content**:
+   - Start with the feature overview, then describe the features in plain prose or a short plain list
+   - Then write the usage section, with text descriptions accompanying each code block
+   - Add notes and references
+4. **Add diagrams**: Draw class diagrams, flowcharts, and structural diagrams
+5. **Review and revise**: Check code runnability, text fluency, and format consistency
+
+## Document Template
+
+The template assembles every rule on this page into one copy-pasteable page skeleton; square brackets mark placeholders:
+
+```markdown
+# Feature Name Guide
+
+A one- or two-sentence description of the class's purpose and when to use it.
+
+## Key Features
+
+- Feature 1
+- Feature 2
+
+## Basic Concepts
+
+### Core Concept Explanation
+
+[Text description]
+
+```mermaid
+classDiagram
+    [Class relationship diagram]
+```
+
+## Usage
+
+[If there is a corresponding example, include this content] The xxx example is located in: `examples/xxx`. Screenshot below:
+
+```markdown
+![xxx](assets/screenshots/xxx.png)
+```
+
+### 1. Basic Usage
+
+[Text description of purpose and scenarios]
+
+```cpp
+[Code example]
+```
+
+[Effect description]
+
+### 2. Advanced Configuration
+
+[Text description of configuration options]
+
+| Method | Description |
+|------|------|
+| Method 1 | Description |
+| Method 2 | Description |
+
+```cpp
+[Configuration code]
+```
+
+> **Warning — setRawSamples keeps a reference**
+>
+> Important reminder
+
+
+
+---
+
+This standard applies to writing all Qwt English usage guide documentation.

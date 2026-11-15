@@ -1,0 +1,84 @@
+# ---------------------------------------------------------------------------
+# Build output (regenerate with build.bat / tools\build_qwt.bat)
+# ---------------------------------------------------------------------------
+/build/
+/third_party/QWT-build/
+/third_party/qwt-install/
+/dist/
+/out/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+build.ninja
+.ninja_deps
+.ninja_log
+.qt/
+*_autogen/
+*.obj
+*.o
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.res
+*.lib
+*.dll
+*.exe
+
+# ---------------------------------------------------------------------------
+# Debug captures / scratch test output
+# ---------------------------------------------------------------------------
+/shot_*.png
+/screen*.png
+/t?.png
+/tdms_*.png
+*.log
+*.tmp
+*.bak
+*.orig
+*~
+__pycache__/
+*.pyc
+
+# ---------------------------------------------------------------------------
+# Runtime configuration (created on first launch; never ship a user's INI)
+# ---------------------------------------------------------------------------
+/config/TdmsViewer.ini
+**/config/TdmsViewer.ini
+**/TdmsViewer.ini
+*.tdms_index
+
+# ---------------------------------------------------------------------------
+# Test artefacts under samples/ (demo.* and import_demo.* are the shipped
+# examples; everything else is produced by the regression tests)
+# ---------------------------------------------------------------------------
+/samples/abs_create.*
+/samples/delete_test.*
+/samples/merged_*
+/samples/saveas_copy.*
+/samples/export_*
+/samples/settings_test.ini
+/samples/export_all/
+/samples/中文 目录/
+/build/samples/
+
+# ---------------------------------------------------------------------------
+# NI TDM C DLL SDK.  NOT redistributable as a standalone archive (license
+# section 4).  Developers install their own copy and pass -DTDM_ROOT=<path>
+# or set the TDM_ROOT environment variable.  See THIRD_PARTY_NOTICES.md.
+# ---------------------------------------------------------------------------
+/TDM C DLL/
+
+# ---------------------------------------------------------------------------
+# IDE / agent workspace data (project-local, not part of a release)
+# ---------------------------------------------------------------------------
+/.workbuddy/
+/.vs/
+/.vscode/
+/.idea/
+
+# ---------------------------------------------------------------------------
+# Internal publishing checklist (workspace cleanup list, TODOs, build notes).
+# Kept locally only; never commit or ship it.
+# ---------------------------------------------------------------------------
+/RELEASE.md
